@@ -4,6 +4,8 @@
 import asyncio, logging
 import aiomysql
 
+logging.basicConfig(level=logging.INFO)
+
 def log(sql, args=()):
     logging.info('SQL: %s' % sql)
 
@@ -15,13 +17,19 @@ async def create_pool(loop, **kw):
             port=kw.get('port', 3306),
             user=kw['user'],
             password=kw['password'],
-            db=kw['db'],
-            charset=kw.get('charset', 'utf-8'),
+            db=kw['database'],
+            charset=kw.get('charset', 'utf8'),
             autocommit=kw.get('autocommit', True),
             maxsize=kw.get('maxsize', 10),
             minsize=kw.get('minsize', 1),
             loop=loop
     )
+
+async def destroy_pool():
+    global __pool
+    if __pool is not None:
+        __pool.close()
+        await __pool.wait_closed()
 
 async def select(sql, args, size=None):
     log(sql, args)
@@ -42,8 +50,8 @@ async def execute(sql, args, autocommit=True):
         if not autocommit:
             await conn.begin()
         try:
-            async with conn.cursor(aiomysql.DicCursor) as cur:
-                await cur.execut(sql.replace('?', '%s'), args)
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(sql.replace('?', '%s'), args)
                 affected = cur.rowcount
                 if not autocommit:
                     await cur.commit()
@@ -51,6 +59,8 @@ async def execute(sql, args, autocommit=True):
             if not autocommit:
                 await cur.rollback()
             raise
+        finally:
+            conn.close()
         return affected
 
 def create_args_string(num):
@@ -113,7 +123,7 @@ class ModelMetaclass(type):   # 表类型
         for k in mappings.keys():
             attrs.pop(k)
         escaped_fields = list(map(lambda f: '%s' % f, fields))
-        attrs['__mapping__'] = mappings
+        attrs['__mappings__'] = mappings
         attrs['__table__'] = tableName
         attrs['__primary_key__'] = primaryKey
         attrs['__fields__'] = fields
@@ -121,9 +131,10 @@ class ModelMetaclass(type):   # 表类型
         attrs['__insert__'] = 'insert into `%s` (%s, `%s`) values (%s)' % (tableName, ', '.join(escaped_fields), primaryKey, create_args_string(len(escaped_fields) + 1))
         attrs['__update__'] = 'update `%s` set %s where `%s`=?' % (tableName, ', '.join(map(lambda f: '`%s`=?' % (mappings.get(f).name or f), fields)), primaryKey)
         attrs['__delete__'] = 'delete from `%s` where `%s`=?' % (tableName, primaryKey)
+        return type.__new__(cls, name, bases, attrs)
 
-class Model(dict):
-    __metaclass__ = ModelMetaclass
+class Model(dict, metaclass=ModelMetaclass):
+    #__metaclass__ = ModelMetaclass
 
     def __init__(self, **kw):
         super(Model, self).__init__(**kw)
@@ -144,10 +155,10 @@ class Model(dict):
         value = getattr(self, key, None)
         if value is None:
             field = self.__mappings__[key]
-        if field.default is not None:
-            value = field.default() if callable(field.default) else field.default
-            logging.debug('using default value for %s: %s' % (key, str(value)))
-            setattr(self, key, value)
+            if field.default is not None:
+                value = field.default() if callable(field.default) else field.default
+                logging.debug('using default value for %s: %s' % (key, str(value)))
+                setattr(self, key, value)
         return value
 
     @classmethod
