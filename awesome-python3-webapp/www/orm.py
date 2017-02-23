@@ -35,7 +35,7 @@ async def select(sql, args, size=None):
     log(sql, args)
     global __pool
     async with __pool.get() as conn:
-        async with conn.cursor(aiomysql.DicCursor) as cur:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(sql.replace('?', '%s'), args or ())
             if size:
                 rs = await cur.fetchmany(size)
@@ -164,7 +164,7 @@ class Model(dict, metaclass=ModelMetaclass):
     @classmethod
     async def findAll(cls, where=None, args=None, **kw):
         ''' find object by where cause.'''
-        sql = [cls.__selete__]
+        sql = [cls.__select__]
         if where:
             sql.append('where')
             sql.append(where)
