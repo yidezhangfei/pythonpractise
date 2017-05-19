@@ -6,12 +6,14 @@ import sys
 import multiprocessing
 import shutil
 
-g_exclude_suffixs = [".git", "out"]
+g_exclude_suffixs = []
 
 def should_exclude(dir):
     should = False
     for suffix in g_exclude_suffixs:
-        should = True if dir.find(suffix) != 0 else False
+        should = True if os.path.basename(dir).find(suffix) == 0 else False
+        if should is True:
+            break
     return should
 
 def recursion_cp(source, target):
@@ -40,6 +42,8 @@ def recursion_cp_mp(source, target):
             pool.apply_async(recursion_cp, (abdir_or_file, abdir_or_file_target))
         elif os.path.isfile(abdir_or_file):
             shutil.copy(abdir_or_file, abdir_or_file_target)
+    pool.close()
+    pool.join()
 
 if __name__ == "__main__":
     current_dir = os.getcwd()
